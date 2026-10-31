@@ -13,6 +13,27 @@ MODEL_PATH = "hand_landmarker.task"
 LANDMARK_COLOR = (0, 255, 0)
 CONNECTION_COLOR = (255, 0, 0)
 
+THUMB_TIP, THUMB_IP = 4, 3
+FINGER_TIPS_PIPS = [(8, 6), (12, 10), (16, 14), (20, 18)]
+
+
+def count_fingers(hand_landmarks, handedness_label):
+    count = 0
+
+    for tip, pip in FINGER_TIPS_PIPS:
+        if hand_landmarks[tip].y < hand_landmarks[pip].y:
+            count += 1
+
+    if handedness_label == "Right":
+        thumb_open = hand_landmarks[THUMB_TIP].x > hand_landmarks[THUMB_IP].x
+    else:
+        thumb_open = hand_landmarks[THUMB_TIP].x < hand_landmarks[THUMB_IP].x
+
+    if thumb_open:
+        count += 1
+
+    return count
+
 
 def draw_landmarks(frame, hand_landmarks):
     h, w = frame.shape[:2]
@@ -59,8 +80,25 @@ def main():
             frame_index += 1
 
             if result.hand_landmarks:
-                for hand_landmarks in result.hand_landmarks:
+                for hand_landmarks, handedness in zip(
+                    result.hand_landmarks, result.handedness
+                ):
                     draw_landmarks(frame, hand_landmarks)
+
+                    finger_count = count_fingers(
+                        hand_landmarks, handedness[0].category_name
+                    )
+                    tip = hand_landmarks[0]
+                    text_pos = (int(tip.x * frame.shape[1]) - 20, int(tip.y * frame.shape[0]) + 40)
+                    cv2.putText(
+                        frame,
+                        str(finger_count),
+                        text_pos,
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.5,
+                        (0, 0, 255),
+                        3,
+                    )
 
             cv2.imshow("El Tespiti", frame)
 
