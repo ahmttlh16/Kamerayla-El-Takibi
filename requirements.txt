@@ -1,0 +1,7 @@
+opencv-python
+mediapipe
+numpy
+pycaw; sys_platform == "win32"
+comtypes; sys_platform == "win32"
+pulsectl; sys_platform == "linux"
+pyalsaaudio; sys_platform == "linux"
