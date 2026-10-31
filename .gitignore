@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sanal ortamlar
+.venv/
+venv/
+env/
+ENV/
+
+# IDE / editor ayarlari
+.vscode/
+.idea/
+
+# Isletim sistemi dosyalari
+.DS_Store
+Thumbs.db
+
+# Log ve gecici dosyalar
+*.log
