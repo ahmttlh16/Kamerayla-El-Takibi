@@ -29,6 +29,10 @@ CONNECTION_COLOR = (255, 0, 0)
 
 # Bas parmak ucu (4) ve isaret parmagi ucu (8) landmark indeksleri
 THUMB_TIP, INDEX_TIP = 4, 8
+# Bas parmagin uc noktasi (4) ve orta eklemi (3) indeksleri
+THUMB_IP = 3
+# Isaret, orta, yuzuk ve serce parmaklarin (uc nokta, alt eklem) indeks ciftleri
+FINGER_TIPS_PIPS = [(8, 6), (12, 10), (16, 14), (20, 18)]
 
 # Parmaklar birbirine en yakin oldugunda (sesi kapatirken) olculen piksel mesafesi
 MIN_DISTANCE = 30
@@ -82,6 +86,47 @@ class VolumeController:
             self.pulse.volume_set_all_chans(self.sink, level)
         elif self.backend == "alsaaudio":
             self.mixer.setvolume(int(level * 100))
+
+
+def count_fingers(hand_landmarks, handedness_label):
+    # Acik parmak sayisini tutan sayac
+    count = 0
+
+    # Isaret, orta, yuzuk ve serce parmaklari tek tek kontrol et
+    for tip, pip in FINGER_TIPS_PIPS:
+        # Uc nokta, alt eklemden daha yukarida ise (y degeri daha kucukse) parmak aciktir
+        if hand_landmarks[tip].y < hand_landmarks[pip].y:
+            count += 1
+
+    # Bas parmak icin yon, elin sag mi sol mu oldugu bilgisine gore degisir
+    if handedness_label == "Right":
+        # Sag elde bas parmak aciksa uc nokta, eklemin sagindadir (x degeri daha buyuktur)
+        thumb_open = hand_landmarks[THUMB_TIP].x > hand_landmarks[THUMB_IP].x
+    else:
+        # Sol elde bas parmak aciksa uc nokta, eklemin solundadir (x degeri daha kucuktur)
+        thumb_open = hand_landmarks[THUMB_TIP].x < hand_landmarks[THUMB_IP].x
+
+    # Bas parmak aciksa sayaci bir arttir
+    if thumb_open:
+        count += 1
+
+    # Toplam acik parmak sayisini dondur
+    return count
+
+
+def draw_finger_counter(frame, finger_count):
+    # Sayaci yazmadan once okunakli olmasi icin arka plana koyu bir dikdortgen ciz
+    cv2.rectangle(frame, (10, 10), (220, 110), (0, 0, 0), -1)
+    # Acik parmak sayisini ekranin sol ust kosesine buyuk ve beyaz fontla yaz
+    cv2.putText(
+        frame,
+        f"Parmak: {finger_count}",
+        (20, 85),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.8,
+        (255, 255, 255),
+        4,
+    )
 
 
 def draw_landmarks(frame, hand_landmarks):
@@ -142,9 +187,6 @@ def main():
         print("Kamera acilamadi.")
         return
 
-    # Baslangicta ses barini orta seviyede gostermek icin varsayilan yuzde
-    volume_percent = 0
-
     # Model kaynaklarini otomatik yonetmek icin 'with' blogu kullan
     with HandLandmarker.create_from_options(options) as landmarker:
         # Video modu icin her kareye artan bir zaman damgasi gerekir
@@ -175,11 +217,16 @@ def main():
 
             # En az bir el tespit edildiyse
             if result.hand_landmarks:
-                # Ilk tespit edilen elin eklemlerini al
+                # Ilk tespit edilen elin eklemlerini ve el yonunu (sag/sol) al
                 hand_landmarks = result.hand_landmarks[0]
+                handedness_label = result.handedness[0][0].category_name
 
                 # Elin eklem noktalarini ve baglantilarini ekrana ciz
                 draw_landmarks(frame, hand_landmarks)
+
+                # Acik parmak sayisini hesapla ve sol ust koseye yaz
+                finger_count = count_fingers(hand_landmarks, handedness_label)
+                draw_finger_counter(frame, finger_count)
 
                 # Bas parmak ucunun piksel koordinati
                 thumb_point = (
@@ -216,8 +263,8 @@ def main():
                 # Hesaplanan seviyeye gore sistem sesini ayarla
                 volume_controller.set_volume(volume_scalar)
 
-            # Ses barini ve yuzdelik metni ekrana ciz
-            draw_volume_bar(frame, volume_percent)
+                # Ses barini ve yuzdelik metni ekrana ciz
+                draw_volume_bar(frame, volume_percent)
 
             # Isleme sonucunu pencerede goster
             cv2.imshow("El ile Ses Kontrolu", frame)
