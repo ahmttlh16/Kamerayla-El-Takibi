@@ -29,11 +29,10 @@ CONNECTION_COLOR = (255, 0, 0)
 
 # Bas parmak ucu (4) ve isaret parmagi ucu (8) landmark indeksleri
 THUMB_TIP, INDEX_TIP = 4, 8
-# Bas parmagin uc noktasi (4) ve eklemi (3) indeksleri
-THUMB_IP = 3
-# Isaret parmagi koku (5) ve serce parmak koku (17) indeksleri - elin ekranda hangi
-# yone baktigini (sag/sol el etiketine ihtiyac olmadan) geometrik olarak bulmak icin kullanilir
-INDEX_MCP, PINKY_MCP = 5, 17
+# Bas parmagin alt eklemi (2) ve serce parmak koku (17) indeksleri
+THUMB_MCP, PINKY_MCP = 2, 17
+# Bilek noktasinin (0) indeksi - parmaklarin acik/kapali kararini buna olan uzakliga gore veririz
+WRIST = 0
 # Isaret, orta, yuzuk ve serce parmaklarin (uc nokta, alt eklem) indeks ciftleri
 FINGER_TIPS_PIPS = [(8, 6), (12, 10), (16, 14), (20, 18)]
 
@@ -91,29 +90,38 @@ class VolumeController:
             self.mixer.setvolume(int(level * 100))
 
 
-def count_fingers(hand_landmarks):
+def landmark_pixel_distance(point_a, point_b, w, h):
+    # Iki landmark arasindaki piksel mesafesini hesapla (normalize x,y degerlerini
+    # once goruntu genislik/yukseklik ile carpip gercek piksel konumuna ceviriyoruz)
+    return math.hypot((point_a.x - point_b.x) * w, (point_a.y - point_b.y) * h)
+
+
+def count_fingers(hand_landmarks, w, h):
     # Acik parmak sayisini tutan sayac
     count = 0
 
+    # El yatay/egik tutuldugunda x/y eksen karsilastirmasi bozuldugu icin, parmagin
+    # acik olup olmadigina bilege (0) olan piksel uzakligi ile karar veriyoruz;
+    # bu yontem elin donus acisindan (rotation) etkilenmez
+    wrist = hand_landmarks[WRIST]
+
     # Isaret, orta, yuzuk ve serce parmaklari tek tek kontrol et
     for tip, pip in FINGER_TIPS_PIPS:
-        # Uc nokta, alt eklemden daha yukarida ise (y degeri daha kucukse) parmak aciktir
-        if hand_landmarks[tip].y < hand_landmarks[pip].y:
+        tip_distance = landmark_pixel_distance(hand_landmarks[tip], wrist, w, h)
+        pip_distance = landmark_pixel_distance(hand_landmarks[pip], wrist, w, h)
+
+        # Uc nokta, alt eklemden bilege daha uzaksa parmak aciktir
+        if tip_distance > pip_distance:
             count += 1
 
-    # multi_handedness ('Right'/'Left') etiketlerine guvenmiyoruz; cv2.flip sonrasi bu
-    # etiketler elin ekrandaki gercek konumuyla tutarsizlasip bas parmagi hic saymiyordu.
-    # Bunun yerine elin ekranda hangi yone baktigini, isaret parmagi koku (5) ile serce
-    # parmak koku (17) noktalarinin x koordinatlarini kiyaslayarak dinamik olarak buluyoruz.
-    if hand_landmarks[INDEX_MCP].x > hand_landmarks[PINKY_MCP].x:
-        # Isaret parmagi koku serce kokunun saginda ise bas parmak aciksa uc nokta eklemin sagindadir
-        thumb_open = hand_landmarks[THUMB_TIP].x > hand_landmarks[THUMB_IP].x
-    else:
-        # Isaret parmagi koku serce kokunun solunda ise bas parmak aciksa uc nokta eklemin solundadir
-        thumb_open = hand_landmarks[THUMB_TIP].x < hand_landmarks[THUMB_IP].x
+    # Bas parmak icin de ayni rotasyondan bagimsiz mantigi kullaniyoruz: referans
+    # nokta olarak serce parmak koku (17) aliniyor
+    pinky_mcp = hand_landmarks[PINKY_MCP]
+    thumb_tip_distance = landmark_pixel_distance(hand_landmarks[THUMB_TIP], pinky_mcp, w, h)
+    thumb_mcp_distance = landmark_pixel_distance(hand_landmarks[THUMB_MCP], pinky_mcp, w, h)
 
-    # Bas parmak aciksa sayaci bir arttir
-    if thumb_open:
+    # Bas parmak ucu, kendi alt ekleminden serce kokune daha uzaksa bas parmak aciktir
+    if thumb_tip_distance > thumb_mcp_distance:
         count += 1
 
     # Toplam acik parmak sayisini dondur
@@ -247,7 +255,7 @@ def main():
                     distance = draw_pinch_line(frame, hand_landmarks, w, h)
 
                     # Bu elin acik parmak sayisini hesapla ve toplama ekle
-                    toplam_parmak += count_fingers(hand_landmarks)
+                    toplam_parmak += count_fingers(hand_landmarks, w, h)
 
                     # Ses kontrolu SADECE ilk tespit edilen el (indeks 0) icin calisir
                     if hand_index == 0:
