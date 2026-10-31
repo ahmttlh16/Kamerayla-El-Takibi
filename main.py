@@ -114,21 +114,6 @@ def count_fingers(hand_landmarks, handedness_label):
     return count
 
 
-def draw_finger_counter(frame, finger_count):
-    # Sayaci yazmadan once okunakli olmasi icin arka plana koyu bir dikdortgen ciz
-    cv2.rectangle(frame, (10, 10), (220, 110), (0, 0, 0), -1)
-    # Acik parmak sayisini ekranin sol ust kosesine buyuk ve beyaz fontla yaz
-    cv2.putText(
-        frame,
-        f"Parmak: {finger_count}",
-        (20, 85),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.8,
-        (255, 255, 255),
-        4,
-    )
-
-
 def draw_landmarks(frame, hand_landmarks):
     # Kare (frame) yukseklik ve genislik bilgisi
     h, w = frame.shape[:2]
@@ -145,6 +130,33 @@ def draw_landmarks(frame, hand_landmarks):
     # Her eklem noktasina bir daire ciz
     for point in points:
         cv2.circle(frame, point, 5, LANDMARK_COLOR, -1)
+
+
+def draw_pinch_line(frame, hand_landmarks, w, h):
+    # Bas parmak ucunun piksel koordinati
+    thumb_point = (
+        int(hand_landmarks[THUMB_TIP].x * w),
+        int(hand_landmarks[THUMB_TIP].y * h),
+    )
+    # Isaret parmagi ucunun piksel koordinati
+    index_point = (
+        int(hand_landmarks[INDEX_TIP].x * w),
+        int(hand_landmarks[INDEX_TIP].y * h),
+    )
+
+    # Iki nokta arasina bir cizgi ciz
+    cv2.line(frame, thumb_point, index_point, (0, 255, 255), 3)
+
+    # Iki noktanin tam orta noktasini hesapla
+    mid_point = (
+        (thumb_point[0] + index_point[0]) // 2,
+        (thumb_point[1] + index_point[1]) // 2,
+    )
+    # Orta noktaya bir daire ciz
+    cv2.circle(frame, mid_point, 10, (0, 255, 255), -1)
+
+    # Bas parmak ve isaret parmagi arasindaki mesafeyi dondur
+    return math.hypot(index_point[0] - thumb_point[0], index_point[1] - thumb_point[1])
 
 
 def draw_volume_bar(frame, volume_percent):
@@ -169,11 +181,11 @@ def draw_volume_bar(frame, volume_percent):
 
 
 def main():
-    # El tespiti modelinin calisma secenekleri (video modu, en fazla 1 el)
+    # El tespiti modelinin calisma secenekleri (video modu, en fazla 2 el)
     options = HandLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=MODEL_PATH),
         running_mode=RunningMode.VIDEO,
-        num_hands=1,
+        num_hands=2,
     )
 
     # Sistem sesini kontrol edecek nesneyi olustur
@@ -215,56 +227,48 @@ def main():
             # Kare boyutlarini piksel hesaplari icin al
             h, w = frame.shape[:2]
 
+            # Tum ellerdeki acik parmaklarin toplamini tutan degisken
+            toplam_parmak = 0
+
             # En az bir el tespit edildiyse
             if result.hand_landmarks:
-                # Ilk tespit edilen elin eklemlerini ve el yonunu (sag/sol) al
-                hand_landmarks = result.hand_landmarks[0]
-                handedness_label = result.handedness[0][0].category_name
+                # Tespit edilen tum elleri (indeksleriyle birlikte) tek tek dolas
+                for hand_index, (hand_landmarks, handedness) in enumerate(
+                    zip(result.hand_landmarks, result.handedness)
+                ):
+                    # Elin eklem noktalarini ve baglantilarini ekrana ciz
+                    draw_landmarks(frame, hand_landmarks)
 
-                # Elin eklem noktalarini ve baglantilarini ekrana ciz
-                draw_landmarks(frame, hand_landmarks)
+                    # Bas parmak ve isaret parmagi arasindaki pinch cizgisini ciz ve mesafeyi al
+                    distance = draw_pinch_line(frame, hand_landmarks, w, h)
 
-                # Acik parmak sayisini hesapla ve sol ust koseye yaz
-                finger_count = count_fingers(hand_landmarks, handedness_label)
-                draw_finger_counter(frame, finger_count)
+                    # Bu elin acik parmak sayisini hesapla ve toplama ekle
+                    handedness_label = handedness[0].category_name
+                    toplam_parmak += count_fingers(hand_landmarks, handedness_label)
 
-                # Bas parmak ucunun piksel koordinati
-                thumb_point = (
-                    int(hand_landmarks[THUMB_TIP].x * w),
-                    int(hand_landmarks[THUMB_TIP].y * h),
+                    # Ses kontrolu SADECE ilk tespit edilen el (indeks 0) icin calisir
+                    if hand_index == 0:
+                        # Mesafeyi ses seviyesi yuzdesine (0-100) haritala
+                        volume_percent = np.interp(distance, [MIN_DISTANCE, MAX_DISTANCE], [0, 100])
+                        # Mesafeyi ayni zamanda 0.0-1.0 araligindaki ses skalasina haritala
+                        volume_scalar = np.interp(distance, [MIN_DISTANCE, MAX_DISTANCE], [0.0, 1.0])
+
+                        # Hesaplanan seviyeye gore sistem sesini ayarla
+                        volume_controller.set_volume(volume_scalar)
+
+                        # Ses barini ve yuzdelik metni ekrana ciz
+                        draw_volume_bar(frame, volume_percent)
+
+                # Dongu bittikten sonra toplam acik parmak sayisini ekranin sol alt kosesine yaz
+                cv2.putText(
+                    frame,
+                    f"Toplam Acik Parmak: {toplam_parmak}",
+                    (20, h - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.2,
+                    (255, 255, 255),
+                    3,
                 )
-                # Isaret parmagi ucunun piksel koordinati
-                index_point = (
-                    int(hand_landmarks[INDEX_TIP].x * w),
-                    int(hand_landmarks[INDEX_TIP].y * h),
-                )
-
-                # Iki nokta arasina bir cizgi ciz
-                cv2.line(frame, thumb_point, index_point, (0, 255, 255), 3)
-
-                # Iki noktanin tam orta noktasini hesapla
-                mid_point = (
-                    (thumb_point[0] + index_point[0]) // 2,
-                    (thumb_point[1] + index_point[1]) // 2,
-                )
-                # Orta noktaya bir daire ciz
-                cv2.circle(frame, mid_point, 10, (0, 255, 255), -1)
-
-                # Bas parmak ve isaret parmagi arasindaki mesafeyi hesapla
-                distance = math.hypot(
-                    index_point[0] - thumb_point[0], index_point[1] - thumb_point[1]
-                )
-
-                # Mesafeyi ses seviyesi yuzdesine (0-100) haritala
-                volume_percent = np.interp(distance, [MIN_DISTANCE, MAX_DISTANCE], [0, 100])
-                # Mesafeyi ayni zamanda 0.0-1.0 araligindaki ses skalasina haritala
-                volume_scalar = np.interp(distance, [MIN_DISTANCE, MAX_DISTANCE], [0.0, 1.0])
-
-                # Hesaplanan seviyeye gore sistem sesini ayarla
-                volume_controller.set_volume(volume_scalar)
-
-                # Ses barini ve yuzdelik metni ekrana ciz
-                draw_volume_bar(frame, volume_percent)
 
             # Isleme sonucunu pencerede goster
             cv2.imshow("El ile Ses Kontrolu", frame)
