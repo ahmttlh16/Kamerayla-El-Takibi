@@ -1,5 +1,7 @@
 opencv-python
-mediapipe
+# mediapipe 1.x, Windows Smart App Control tarafindan engellenen imzasiz bir
+# native DLL (libmediapipe.dll) kullaniyor; bu yuzden 0.10.x serisine sabitlendi
+mediapipe==0.10.35
 numpy
 pycaw; sys_platform == "win32"
 comtypes; sys_platform == "win32"
